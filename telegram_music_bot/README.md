@@ -2,7 +2,7 @@
 
 An aiogram 3 bot that verifies users with a short arithmetic CAPTCHA, checks required channel membership, and searches songs by title or artist.
 
-Search results come from Apple's public iTunes Search API. Selecting a song shows Listen and Website buttons. Listen downloads and sends Apple's short preview directly in Telegram; the website remains available as a fallback. The bot does not download full recordings.
+Search results come from Apple's public iTunes Search API and are shown as song buttons, with at most five total inline buttons per page. Selecting a song shows Listen, Download, and Back buttons. Listen and Download both send Apple's available preview directly in Telegram. The bot does not include music website links or download full recordings.
 
 On first use, users choose English or Russian. They can change the saved preference with `/language`. CAPTCHA answers can be selected from inline buttons or typed as a number.
 
@@ -42,7 +42,7 @@ Never commit `.env` or paste the bot token into source code.
 | `REQUIRED_CHANNELS` | Yes | — | Comma-separated public handles or chat IDs |
 | `REQUIRED_CHANNEL_LINKS` | No | Derived for public handles | Comma-separated join links, aligned with channels |
 | `DATABASE_PATH` | No | `data/music_bot.sqlite3` | SQLite file for CAPTCHA-verified user IDs |
-| `SEARCH_RESULTS_LIMIT` | No | `5` | Results per search (1–10) |
+| `SEARCH_RESULTS_LIMIT` | No | `50` | Total catalog results to paginate (1–200; five inline buttons per page) |
 | `CAPTCHA_TTL_SECONDS` | No | `300` | Time allowed to solve a CAPTCHA |
 | `ITUNES_COUNTRY` | No | `US` | Two-letter iTunes search storefront |
 

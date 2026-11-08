@@ -34,7 +34,7 @@ An aiogram 3 Telegram bot that verifies new users, enforces required channel sub
 ## Architecture decisions
 
 - The bot uses long polling and does not expose a web server.
-- Music search uses Apple's public iTunes Search API, sends available short previews in Telegram, and keeps the website link as a fallback; it does not download full recordings.
+- Music search uses Apple's public iTunes Search API, shows paged song buttons, and sends available short previews in Telegram without website links or full recordings.
 - CAPTCHA verification and English/Russian language preferences are stored in SQLite; channel membership is checked again before each search.
 
 ## Product

@@ -74,10 +74,10 @@ class Settings:
 
         results_limit = _positive_int(
             "SEARCH_RESULTS_LIMIT",
-            os.getenv("SEARCH_RESULTS_LIMIT", "5"),
+            os.getenv("SEARCH_RESULTS_LIMIT", "50"),
         )
-        if not 1 <= results_limit <= 10:
-            raise ConfigurationError("SEARCH_RESULTS_LIMIT must be from 1 to 10.")
+        if not 1 <= results_limit <= 200:
+            raise ConfigurationError("SEARCH_RESULTS_LIMIT must be from 1 to 200.")
 
         captcha_ttl = _positive_int(
             "CAPTCHA_TTL_SECONDS",

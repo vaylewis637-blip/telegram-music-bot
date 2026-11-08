@@ -31,8 +31,9 @@ from music_bot.services.user_repository import UserRepository
 
 router = Router(name="search")
 logger = logging.getLogger(__name__)
-SELECTION_TTL_SECONDS = 30 * 60
-MAX_STORED_SEARCHES = 8
+
+MAX_BUTTONS_PER_PAGE = 5
+SEARCH_STATE_TTL_SECONDS = 60 * 60
 
 
 @router.message(Command("search"))
@@ -48,22 +49,17 @@ async def handle_search_command(
         return
 
     query = (message.text or "").partition(" ")[2].strip()
+    language = await _language_for_message(message, repository)
     if not query:
-        language = await repository.get_language(
-            message.from_user.id if message.from_user else 0
-        )
         await message.answer(translate(language, "search_prompt"))
         return
-    language = await repository.get_language(
-        message.from_user.id if message.from_user else 0
-    )
     await search_and_reply(
         message,
         query,
         settings,
         music_search,
         state,
-        language or "en",
+        language,
     )
 
 
@@ -76,21 +72,20 @@ async def handle_text_search(
     repository: UserRepository,
     music_search: MusicSearch,
 ) -> None:
-    text = (message.text or "").strip()
-    if not text or text.startswith("/"):
+    query = (message.text or "").strip()
+    if not query or query.startswith("/"):
         return
     if not await require_access(message, state, bot, settings, repository):
         return
-    language = await repository.get_language(
-        message.from_user.id if message.from_user else 0
-    )
+
+    language = await _language_for_message(message, repository)
     await search_and_reply(
         message,
-        text,
+        query,
         settings,
         music_search,
         state,
-        language or "en",
+        language,
     )
 
 
@@ -102,6 +97,13 @@ async def search_and_reply(
     state: FSMContext,
     language: str = "en",
 ) -> None:
+    await state.update_data(
+        current_search_id=None,
+        search_query=query,
+        current_page=1,
+        current_search_results=[],
+        search_created_at=time.time(),
+    )
     status = await message.answer(translate(language, "searching"))
     try:
         tracks = await music_search.search(
@@ -115,93 +117,139 @@ async def search_and_reply(
 
     if not tracks:
         await status.edit_text(
-            translate(language, "no_tracks", query=html.escape(query))
+            translate(language, "no_tracks", query=html.escape(_shorten(query, 120)))
         )
         return
 
-    result_set_id = await store_track_results(state, tracks)
-    await status.edit_text(
-        format_tracks(query, tracks, language),
-        reply_markup=track_keyboard(tracks, result_set_id, language),
+    search_id = secrets.token_hex(4)
+    await state.update_data(
+        current_search_id=search_id,
+        search_query=query,
+        current_page=1,
+        current_search_results=[asdict(track) for track in tracks],
+        search_created_at=time.time(),
+    )
+    await render_result_page(
+        status,
+        state,
+        language,
+        search_id,
+        requested_page=1,
     )
 
 
-def format_tracks(
-    query: str,
-    tracks: list[Track],
-    language: str = "en",
-) -> str:
-    lines = [translate(language, "results_for", query=html.escape(query))]
-    for index, track in enumerate(tracks, start=1):
-        title = html.escape(track.title)
-        artist = html.escape(track.artist)
-        album = (
-            html.escape(track.album)
-            if track.album
-            else translate(language, "album_unavailable")
-        )
-        lines.append(f"\n<b>{index}. {title}</b>\n{artist} · {album}")
-    return "\n".join(lines)
+async def render_result_page(
+    message: Message,
+    state: FSMContext,
+    language: str,
+    search_id: str,
+    requested_page: int | None = None,
+) -> bool:
+    search = await get_current_search(state, search_id)
+    if search is None:
+        return False
+
+    tracks: list[Track] = search["tracks"]
+    query: str = search["query"]
+    page_ranges = _page_ranges(len(tracks))
+    total_pages = len(page_ranges)
+    page = requested_page if requested_page is not None else search["page"]
+    if page < 1 or page > total_pages:
+        return False
+
+    await state.update_data(current_page=page)
+    text = translate(
+        language,
+        "search_results_page",
+        query=html.escape(_shorten(query, 120)),
+        page=page,
+        total_pages=total_pages,
+    )
+    await message.edit_text(
+        text,
+        reply_markup=search_results_keyboard(
+            tracks=tracks,
+            search_id=search_id,
+            page=page,
+            page_ranges=page_ranges,
+            language=language,
+        ),
+    )
+    return True
 
 
-def track_keyboard(
+def search_results_keyboard(
     tracks: list[Track],
-    result_set_id: str,
-    language: str = "en",
+    search_id: str,
+    page: int,
+    page_ranges: list[tuple[int, int]],
+    language: str,
 ) -> InlineKeyboardMarkup:
-    rows: list[list[InlineKeyboardButton]] = []
-    for index, track in enumerate(tracks, start=1):
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text=translate(
-                        language,
-                        "select_track",
-                        title=_truncate_button_title(track.title),
-                    ),
-                    callback_data=f"song:{result_set_id}:{index}",
-                )
-            ]
+    total_pages = len(page_ranges)
+    start, end = page_ranges[page - 1]
+    page_tracks = tracks[start:end]
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=translate(
+                    language,
+                    "song_button",
+                    artist=track.artist,
+                    title=track.title,
+                )[:64],
+                callback_data=f"song:{search_id}:{start + offset}",
+            )
+        ]
+        for offset, track in enumerate(page_tracks)
+    ]
+
+    navigation: list[InlineKeyboardButton] = []
+    if page > 1:
+        navigation.append(
+            InlineKeyboardButton(
+                text=translate(language, "previous_page"),
+                callback_data=f"page:{search_id}:{page - 1}",
+            )
         )
+    if page < total_pages:
+        navigation.append(
+            InlineKeyboardButton(
+                text=translate(language, "next_page"),
+                callback_data=f"page:{search_id}:{page + 1}",
+            )
+        )
+    if navigation:
+        rows.append(navigation)
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def song_action_keyboard(
-    track: Track,
-    result_set_id: str,
-    index: int,
-    language: str,
-) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text=translate(language, "listen_button"),
-                    callback_data=f"listen:{result_set_id}:{index}",
-                ),
-                InlineKeyboardButton(
-                    text=translate(language, "website_button"),
-                    url=track.track_url,
-                ),
-            ]
-        ]
-    )
+@router.callback_query(F.data.startswith("page:"))
+async def handle_page_navigation(
+    callback: CallbackQuery,
+    state: FSMContext,
+    repository: UserRepository,
+) -> None:
+    if callback.from_user is None or not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    parsed = _parse_callback(callback.data or "", "page", 3)
+    language = await repository.get_language(callback.from_user.id) or "en"
+    if parsed is None:
+        await callback.answer(translate(language, "selection_expired"), show_alert=True)
+        return
 
-
-def website_fallback_keyboard(
-    track: Track,
-    language: str,
-) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text=translate(language, "website_button"),
-                    url=track.track_url,
-                )
-            ]
-        ]
+    search_id, page = parsed
+    updated = await render_result_page(
+        callback.message,
+        state,
+        language,
+        search_id,
+        requested_page=page,
     )
+    if not updated:
+        await callback.answer(translate(language, "selection_expired"), show_alert=True)
+        return
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("song:"))
@@ -213,37 +261,94 @@ async def handle_song_selection(
     if callback.from_user is None or not isinstance(callback.message, Message):
         await callback.answer()
         return
-
-    parsed = _parse_result_callback(callback.data or "", "song")
+    parsed = _parse_callback(callback.data or "", "song", 3)
     language = await repository.get_language(callback.from_user.id) or "en"
     if parsed is None:
         await callback.answer(translate(language, "selection_expired"), show_alert=True)
         return
 
-    result_set_id, index = parsed
-    track = await get_stored_track(state, result_set_id, index)
-    if track is None:
+    search_id, index = parsed
+    search = await get_current_search(state, search_id)
+    if search is None or index < 0 or index >= len(search["tracks"]):
         await callback.answer(translate(language, "selection_expired"), show_alert=True)
         return
+    track: Track = search["tracks"][index]
 
-    await callback.answer()
-    await callback.message.answer(
+    await callback.message.edit_text(
         translate(
             language,
             "song_actions",
+            artist=html.escape(track.artist),
             title=html.escape(track.title),
         ),
-        reply_markup=song_action_keyboard(
-            track,
-            result_set_id,
-            index,
-            language,
-        ),
+        reply_markup=song_action_keyboard(search_id, index, language),
+    )
+    await callback.answer()
+
+
+def song_action_keyboard(
+    search_id: str,
+    index: int,
+    language: str,
+) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=translate(language, "listen_button"),
+                    callback_data=f"send:{search_id}:{index}:listen",
+                ),
+                InlineKeyboardButton(
+                    text=translate(language, "download_button"),
+                    callback_data=f"send:{search_id}:{index}:download",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text=translate(language, "back_results"),
+                    callback_data=f"back:{search_id}",
+                )
+            ],
+        ]
     )
 
 
-@router.callback_query(F.data.startswith("listen:"))
-async def handle_listen_selection(
+@router.callback_query(F.data.startswith("back:"))
+async def handle_back_to_results(
+    callback: CallbackQuery,
+    state: FSMContext,
+    repository: UserRepository,
+) -> None:
+    if callback.from_user is None or not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    parts = (callback.data or "").split(":")
+    language = await repository.get_language(callback.from_user.id) or "en"
+    if len(parts) != 2:
+        await callback.answer(translate(language, "selection_expired"), show_alert=True)
+        return
+
+    state_data = await state.get_data()
+    search_id = parts[1]
+    if state_data.get("current_search_id") != search_id:
+        await callback.answer(translate(language, "selection_expired"), show_alert=True)
+        return
+    page = int(state_data.get("current_page", 1))
+    updated = await render_result_page(
+        callback.message,
+        state,
+        language,
+        search_id,
+        requested_page=page,
+    )
+    if not updated:
+        await callback.answer(translate(language, "selection_expired"), show_alert=True)
+        return
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("send:"))
+async def handle_send_audio(
     callback: CallbackQuery,
     state: FSMContext,
     repository: UserRepository,
@@ -252,47 +357,41 @@ async def handle_listen_selection(
     if callback.from_user is None or not isinstance(callback.message, Message):
         await callback.answer()
         return
-
-    parsed = _parse_result_callback(callback.data or "", "listen")
+    parsed = _parse_audio_callback(callback.data or "")
     language = await repository.get_language(callback.from_user.id) or "en"
     if parsed is None:
         await callback.answer(translate(language, "selection_expired"), show_alert=True)
         return
 
-    result_set_id, index = parsed
-    track = await get_stored_track(state, result_set_id, index)
-    if track is None:
+    search_id, index = parsed
+    search = await get_current_search(state, search_id)
+    if search is None or index < 0 or index >= len(search["tracks"]):
         await callback.answer(translate(language, "selection_expired"), show_alert=True)
         return
-
+    track: Track = search["tracks"][index]
     await callback.answer()
+
     status = await callback.message.answer(
         translate(language, "downloading_preview")
     )
     if not track.preview_url:
-        await status.edit_text(
-            translate(language, "preview_unavailable"),
-            reply_markup=website_fallback_keyboard(track, language),
-        )
+        await status.edit_text(translate(language, "preview_unavailable"))
         return
 
     try:
         audio_data = await preview_downloader.download(track.preview_url)
     except PreviewDownloadError:
         logger.exception("Audio preview download failed")
-        await status.edit_text(
-            translate(language, "download_failed"),
-            reply_markup=website_fallback_keyboard(track, language),
-        )
+        await status.edit_text(translate(language, "download_failed"))
         return
 
-    filename = preview_downloader.filename_for(track.preview_url)
     caption = translate(
         language,
         "audio_caption",
         title=html.escape(track.title),
         artist=html.escape(track.artist),
     )
+    filename = preview_downloader.filename_for(track.preview_url)
     try:
         await callback.message.answer_audio(
             audio=BufferedInputFile(audio_data, filename=filename),
@@ -301,19 +400,9 @@ async def handle_listen_selection(
             caption=caption,
         )
     except TelegramAPIError:
-        logger.warning("Telegram audio upload failed; retrying as a document", exc_info=True)
-        try:
-            await callback.message.answer_document(
-                document=BufferedInputFile(audio_data, filename=filename),
-                caption=caption,
-            )
-        except TelegramAPIError:
-            logger.exception("Telegram document upload failed")
-            await status.edit_text(
-                translate(language, "download_failed"),
-                reply_markup=website_fallback_keyboard(track, language),
-            )
-            return
+        logger.exception("Telegram audio upload failed")
+        await status.edit_text(translate(language, "download_failed"))
+        return
 
     try:
         await status.delete()
@@ -321,85 +410,83 @@ async def handle_listen_selection(
         logger.debug("Could not remove audio download status message")
 
 
-async def store_track_results(
+async def get_current_search(
     state: FSMContext,
-    tracks: list[Track],
-) -> str:
-    now = time.time()
-    state_data = await state.get_data()
-    stored_sets = state_data.get("song_search_sets", {})
-    if not isinstance(stored_sets, dict):
-        stored_sets = {}
-
-    stored_sets = {
-        key: value
-        for key, value in stored_sets.items()
-        if _is_recent_search(value, now)
-    }
-    result_set_id = secrets.token_hex(4)
-    stored_sets[result_set_id] = {
-        "created_at": now,
-        "tracks": [asdict(track) for track in tracks],
-    }
-    while len(stored_sets) > MAX_STORED_SEARCHES:
-        oldest_id = min(
-            stored_sets,
-            key=lambda key: float(stored_sets[key].get("created_at", 0)),
-        )
-        del stored_sets[oldest_id]
-    await state.update_data(song_search_sets=stored_sets)
-    return result_set_id
-
-
-async def get_stored_track(
-    state: FSMContext,
-    result_set_id: str,
-    index: int,
-) -> Track | None:
-    if index < 1:
-        return None
-    state_data = await state.get_data()
-    stored_sets = state_data.get("song_search_sets", {})
-    if not isinstance(stored_sets, dict):
-        return None
-    result_set = stored_sets.get(result_set_id)
-    if not isinstance(result_set, dict):
+    search_id: str,
+) -> dict[str, str | int | list[Track]] | None:
+    data = await state.get_data()
+    if data.get("current_search_id") != search_id:
         return None
     try:
-        if time.time() - float(result_set["created_at"]) >= SELECTION_TTL_SECONDS:
+        if time.time() - float(data["search_created_at"]) >= SEARCH_STATE_TTL_SECONDS:
             return None
-        tracks = result_set["tracks"]
-        track_data = tracks[index - 1]
-        return Track(**track_data)
-    except (KeyError, IndexError, TypeError, ValueError):
+        query = str(data["search_query"])
+        page = int(data["current_page"])
+        stored_tracks = data["current_search_results"]
+        tracks = [Track(**track_data) for track_data in stored_tracks]
+        return {"query": query, "page": page, "tracks": tracks}
+    except (KeyError, TypeError, ValueError):
         return None
 
 
-def _parse_result_callback(
+def _parse_callback(
     data: str,
     action: str,
+    expected_parts: int,
 ) -> tuple[str, int] | None:
     parts = data.split(":")
-    if len(parts) != 3 or parts[0] != action:
+    if len(parts) != expected_parts or parts[0] != action:
         return None
     try:
         index = int(parts[2])
     except ValueError:
         return None
-    return (parts[1], index) if index > 0 else None
+    return (parts[1], index) if index >= 0 else None
 
 
-def _truncate_button_title(title: str, limit: int = 42) -> str:
-    normalized = " ".join(title.split())
+def _parse_audio_callback(data: str) -> tuple[str, int] | None:
+    parts = data.split(":")
+    if (
+        len(parts) != 4
+        or parts[0] != "send"
+        or parts[3] not in {"listen", "download"}
+    ):
+        return None
+    try:
+        index = int(parts[2])
+    except ValueError:
+        return None
+    return (parts[1], index) if index >= 0 else None
+
+
+async def _language_for_message(
+    message: Message,
+    repository: UserRepository,
+) -> str:
+    user_id = message.from_user.id if message.from_user else 0
+    return await repository.get_language(user_id) or "en"
+
+
+def _shorten(value: str, limit: int) -> str:
+    normalized = " ".join(value.split())
     if len(normalized) <= limit:
         return normalized
     return normalized[: limit - 1].rstrip() + "…"
 
 
-def _is_recent_search(value: object, now: float) -> bool:
-    if not isinstance(value, dict):
-        return False
-    try:
-        return now - float(value.get("created_at", 0)) < SELECTION_TTL_SECONDS
-    except (TypeError, ValueError):
-        return False
+def _page_ranges(result_count: int) -> list[tuple[int, int]]:
+    ranges: list[tuple[int, int]] = []
+    offset = 0
+    page = 1
+    while offset < result_count:
+        has_previous = page > 1
+        max_without_next = MAX_BUTTONS_PER_PAGE - int(has_previous)
+        remaining = result_count - offset
+        if remaining <= max_without_next:
+            page_size = remaining
+        else:
+            page_size = MAX_BUTTONS_PER_PAGE - int(has_previous) - 1
+        ranges.append((offset, offset + page_size))
+        offset += page_size
+        page += 1
+    return ranges

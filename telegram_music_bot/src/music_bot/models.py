@@ -8,5 +8,4 @@ class Track:
     title: str
     artist: str
     album: str
-    track_url: str
     preview_url: str | None

@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import Any
-from urllib.parse import urlparse
 
 import aiohttp
 
@@ -52,20 +51,16 @@ class MusicSearch:
                 continue
             title = item.get("trackName")
             artist = item.get("artistName")
-            track_url = item.get("trackViewUrl")
             if not all(
                 isinstance(value, str) and value.strip()
-                for value in (title, artist, track_url)
+                for value in (title, artist)
             ):
-                continue
-            if not _is_https_url(track_url):
                 continue
             tracks.append(
                 Track(
                     title=title.strip(),
                     artist=artist.strip(),
                     album=str(item.get("collectionName") or "").strip(),
-                    track_url=track_url.strip(),
                     preview_url=_optional_string(item.get("previewUrl")),
                 )
             )
@@ -73,11 +68,6 @@ class MusicSearch:
 
 
 def _optional_string(value: Any) -> str | None:
-    if isinstance(value, str) and _is_https_url(value):
+    if isinstance(value, str):
         return value
     return None
-
-
-def _is_https_url(value: str) -> bool:
-    parsed = urlparse(value)
-    return parsed.scheme == "https" and bool(parsed.netloc)

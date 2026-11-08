@@ -236,7 +236,15 @@ async def handle_language_choice(
 ) -> None:
     language = (callback.data or "").removeprefix(LANGUAGE_CALLBACK_PREFIX)
     if language not in LANGUAGES:
-        await callback.answer("Unsupported language.", show_alert=True)
+        current_language = (
+            await repository.get_language(callback.from_user.id)
+            if callback.from_user
+            else "en"
+        )
+        await callback.answer(
+            translate(current_language, "unsupported_language"),
+            show_alert=True,
+        )
         return
     if callback.from_user is None:
         await callback.answer()
@@ -378,7 +386,15 @@ async def handle_captcha_button(
 
     parts = (callback.data or "").split(":")
     if len(parts) != 3:
-        await callback.answer("Invalid CAPTCHA button.", show_alert=True)
+        language = (
+            await repository.get_language(callback.from_user.id)
+            if callback.from_user
+            else "en"
+        )
+        await callback.answer(
+            translate(language, "invalid_captcha_button"),
+            show_alert=True,
+        )
         return
     try:
         answer = int(parts[2])
