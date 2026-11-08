@@ -1,44 +1,54 @@
-# [Project name]
+# Telegram Music Bot
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+An aiogram 3 Telegram bot that verifies new users, enforces required channel subscriptions, and searches Apple's public music catalog by song title or artist.
 
 ## Run & Operate
 
 - `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- `PYTHONPATH=telegram_music_bot/src python -m music_bot` — run the Telegram bot
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- Required bot env: `TELEGRAM_BOT_TOKEN`, `REQUIRED_CHANNELS`
+- Optional bot env: `REQUIRED_CHANNEL_LINKS`, `DATABASE_PATH`, `SEARCH_RESULTS_LIMIT`, `CAPTCHA_TTL_SECONDS`, `ITUNES_COUNTRY`
+- Existing API server env: `DATABASE_URL` — Postgres connection string
 
 ## Stack
 
-- pnpm workspaces, Node.js 24, TypeScript 5.9
+- pnpm workspaces, Node.js 24, TypeScript 5.9, Python 3.13
 - API: Express 5
 - DB: PostgreSQL + Drizzle ORM
 - Validation: Zod (`zod/v4`), `drizzle-zod`
 - API codegen: Orval (from OpenAPI spec)
 - Build: esbuild (CJS bundle)
+- Telegram bot: aiogram 3, aiohttp, SQLite
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `telegram_music_bot/src/music_bot/` — bot configuration, handlers, state, and services
+- `telegram_music_bot/README.md` — BotFather setup, channel permissions, and local run instructions
+- `lib/api-spec/openapi.yaml` — API contract for the existing API server
+- `artifacts/mockup-sandbox/` — reusable design-preview tooling
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- The bot uses long polling and does not expose a web server.
+- Music search uses Apple's public iTunes Search API and returns track/preview links rather than downloading full recordings.
+- CAPTCHA verification is stored in SQLite; channel membership is checked again before each search.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- Users solve an arithmetic CAPTCHA, join configured channels, and search the public music catalog by title or artist.
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- Keep the bot implementation in a clean, standalone Python package.
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- Add the bot as an administrator to every required channel so Telegram allows membership checks.
+- Configure `REQUIRED_CHANNELS` before starting the bot; each private channel also needs a matching invite URL in `REQUIRED_CHANNEL_LINKS`.
 
 ## Pointers
 
