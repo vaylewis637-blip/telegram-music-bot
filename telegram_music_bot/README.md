@@ -4,6 +4,8 @@ An aiogram 3 bot that verifies users with a short arithmetic CAPTCHA, checks req
 
 Search results come from Apple's public iTunes Search API. The bot links to the full track and, when available, Apple's short preview; it does not download full recordings.
 
+On first use, users choose English or Russian. They can change the saved preference with `/language`. CAPTCHA answers can be selected from inline buttons or typed as a number.
+
 ## Setup
 
 1. Create a bot with [@BotFather](https://t.me/BotFather) and save its token as the `TELEGRAM_BOT_TOKEN` Replit Secret.

@@ -11,6 +11,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from music_bot.config import Settings
 from music_bot.handlers.access import require_access
+from music_bot.i18n import translate
 from music_bot.models import Track
 from music_bot.services.music_search import MusicSearch, MusicSearchError
 from music_bot.services.user_repository import UserRepository
@@ -33,12 +34,15 @@ async def handle_search_command(
 
     query = (message.text or "").partition(" ")[2].strip()
     if not query:
-        await message.answer(
-            "Send a song title or artist after the command, for example:\n"
-            "<code>/search Daft Punk</code>"
+        language = await repository.get_language(
+            message.from_user.id if message.from_user else 0
         )
+        await message.answer(translate(language, "search_prompt"))
         return
-    await search_and_reply(message, query, settings, music_search)
+    language = await repository.get_language(
+        message.from_user.id if message.from_user else 0
+    )
+    await search_and_reply(message, query, settings, music_search, language or "en")
 
 
 @router.message(F.text)
@@ -55,7 +59,10 @@ async def handle_text_search(
         return
     if not await require_access(message, state, bot, settings, repository):
         return
-    await search_and_reply(message, text, settings, music_search)
+    language = await repository.get_language(
+        message.from_user.id if message.from_user else 0
+    )
+    await search_and_reply(message, text, settings, music_search, language or "en")
 
 
 async def search_and_reply(
@@ -63,8 +70,9 @@ async def search_and_reply(
     query: str,
     settings: Settings,
     music_search: MusicSearch,
+    language: str = "en",
 ) -> None:
-    status = await message.answer("Searching the music catalog…")
+    status = await message.answer(translate(language, "searching"))
     try:
         tracks = await music_search.search(
             query=query,
@@ -72,47 +80,55 @@ async def search_and_reply(
         )
     except MusicSearchError:
         logger.exception("Music catalog search failed")
-        await status.edit_text(
-            "The music catalog is temporarily unavailable. Please try again shortly."
-        )
+        await status.edit_text(translate(language, "search_failed"))
         return
 
     if not tracks:
         await status.edit_text(
-            f"No tracks found for <b>{html.escape(query)}</b>. "
-            "Try another title or artist."
+            translate(language, "no_tracks", query=html.escape(query))
         )
         return
 
     await status.edit_text(
-        format_tracks(query, tracks),
-        reply_markup=track_keyboard(tracks),
+        format_tracks(query, tracks, language),
+        reply_markup=track_keyboard(tracks, language),
     )
 
 
-def format_tracks(query: str, tracks: list[Track]) -> str:
-    lines = [f"Results for <b>{html.escape(query)}</b>:"]
+def format_tracks(
+    query: str,
+    tracks: list[Track],
+    language: str = "en",
+) -> str:
+    lines = [translate(language, "results_for", query=html.escape(query))]
     for index, track in enumerate(tracks, start=1):
         title = html.escape(track.title)
         artist = html.escape(track.artist)
-        album = html.escape(track.album) if track.album else "Album unavailable"
+        album = (
+            html.escape(track.album)
+            if track.album
+            else translate(language, "album_unavailable")
+        )
         lines.append(f"\n<b>{index}. {title}</b>\n{artist} · {album}")
     return "\n".join(lines)
 
 
-def track_keyboard(tracks: list[Track]) -> InlineKeyboardMarkup:
+def track_keyboard(
+    tracks: list[Track],
+    language: str = "en",
+) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     for index, track in enumerate(tracks, start=1):
         buttons = [
             InlineKeyboardButton(
-                text=f"Open track {index}",
+                text=translate(language, "open_track", number=index),
                 url=track.track_url,
             )
         ]
         if track.preview_url and _is_https_url(track.preview_url):
             buttons.append(
                 InlineKeyboardButton(
-                    text=f"Preview {index}",
+                    text=translate(language, "preview_track", number=index),
                     url=track.preview_url,
                 )
             )
