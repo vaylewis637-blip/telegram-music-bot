@@ -48,8 +48,17 @@ MESSAGES: dict[str, dict[str, str]] = {
         "no_tracks": "No tracks found for <b>{query}</b>. Try another title or artist.",
         "results_for": "Results for <b>{query}</b>:",
         "album_unavailable": "Album unavailable",
-        "open_track": "Open track {number}",
-        "preview_track": "Preview {number}",
+        "select_track": "🎵 Select {title}",
+        "song_actions": "Choose an action for <b>{title}</b>:",
+        "listen_button": "🎧 Listen",
+        "website_button": "🔗 Website",
+        "selection_expired": "This result expired. Search again.",
+        "preview_unavailable": "No audio preview is available. You can open the website instead.",
+        "downloading_preview": "Downloading the audio preview…",
+        "download_failed": (
+            "Couldn't download or send this preview. You can open the website instead."
+        ),
+        "audio_caption": "<b>{title}</b> — {artist}",
     },
     "ru": {
         "choose_language": "Выберите язык / Choose your language:",
@@ -93,8 +102,15 @@ MESSAGES: dict[str, dict[str, str]] = {
         "no_tracks": "По запросу <b>{query}</b> ничего не найдено. Попробуйте другое название или имя исполнителя.",
         "results_for": "Результаты по запросу <b>{query}</b>:",
         "album_unavailable": "Альбом не указан",
-        "open_track": "Открыть трек {number}",
-        "preview_track": "Прослушать {number}",
+        "select_track": "🎵 Выбрать {title}",
+        "song_actions": "Выберите действие для <b>{title}</b>:",
+        "listen_button": "🎧 Прослушать",
+        "website_button": "🔗 Сайт",
+        "selection_expired": "Результат устарел. Выполните поиск ещё раз.",
+        "preview_unavailable": "Аудиофрагмент недоступен. Вы можете открыть сайт.",
+        "downloading_preview": "Загружаю аудиофрагмент…",
+        "download_failed": "Не удалось загрузить или отправить аудио. Вы можете открыть сайт.",
+        "audio_caption": "<b>{title}</b> — {artist}",
     },
 }
 

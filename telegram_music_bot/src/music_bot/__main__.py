@@ -14,6 +14,7 @@ from music_bot.config import ConfigurationError, Settings
 from music_bot.handlers.access import router as access_router
 from music_bot.handlers.search import router as search_router
 from music_bot.services.music_search import MusicSearch
+from music_bot.services.preview_downloader import PreviewDownloader
 from music_bot.services.user_repository import UserRepository
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,7 @@ async def run() -> None:
             session=session,
             country=settings.itunes_country,
         )
+        dispatcher["preview_downloader"] = PreviewDownloader(session)
         dispatcher.include_routers(access_router, search_router)
 
         try:
