@@ -45,4 +45,4 @@ channel = "stable-25_05"
 [userenv]
 
 [userenv.shared]
-REQUIRED_CHANNELS = "г"
+REQUIRED_CHANNELS = "@LifeLewis"
