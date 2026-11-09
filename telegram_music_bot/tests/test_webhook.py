@@ -64,11 +64,27 @@ class WebhookAppTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(self.runtime.updates, [])
 
+    def test_unconfigured_preview_does_not_accept_webhook_updates(self) -> None:
+        app = create_flask_app(None, "")
+        client = app.test_client()
+
+        health = client.get("/")
+        response = client.post("/", json={"update_id": 1})
+
+        self.assertTrue(health.json["ok"])
+        self.assertFalse(health.json["webhook_configured"])
+        self.assertEqual(response.status_code, 503)
+
 
 class WebhookConfigurationTests(unittest.TestCase):
     def test_webhook_url_must_use_https(self) -> None:
         with self.assertRaises(ValueError):
             _validate_webhook_url("http://example.com/")
+
+    def test_render_external_url_is_accepted(self) -> None:
+        url = "https://music-bot.onrender.com"
+
+        self.assertEqual(_validate_webhook_url(url), url)
 
     def test_webhook_secret_is_derived_when_not_configured(self) -> None:
         secret = _resolve_secret_token("example-token", None)

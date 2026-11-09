@@ -30,7 +30,6 @@ from music_bot.services.user_repository import UserRepository
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_WEBHOOK_URL = "https://basirbizurtanov.pythonanywhere.com/"
 WEBHOOK_SECRET_HEADER = "X-Telegram-Bot-Api-Secret-Token"
 UPDATE_TIMEOUT_SECONDS = 55
 WEBHOOK_SECRET_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,256}$")
@@ -45,13 +44,11 @@ class TelegramWebhookRuntime:
 
     def __init__(
         self,
-        webhook_url: str | None = None,
+        webhook_url: str,
         secret_token: str | None = None,
     ) -> None:
         self.settings = Settings.from_env()
-        self.webhook_url = _validate_webhook_url(
-            webhook_url or os.getenv("WEBHOOK_URL", DEFAULT_WEBHOOK_URL)
-        )
+        self.webhook_url = _validate_webhook_url(webhook_url)
         self.secret_token = _resolve_secret_token(
             self.settings.bot_token,
             secret_token or os.getenv("WEBHOOK_SECRET"),
@@ -171,7 +168,7 @@ class TelegramWebhookRuntime:
 
 
 def create_flask_app(
-    runtime: UpdateProcessor,
+    runtime: UpdateProcessor | None,
     secret_token: str,
 ) -> Flask:
     app = Flask(__name__)
@@ -179,10 +176,21 @@ def create_flask_app(
 
     @app.get("/")
     def health_check():
-        return jsonify({"ok": True, "service": "telegram-music-bot"}), 200
+        return jsonify(
+            {
+                "ok": True,
+                "service": "telegram-music-bot",
+                "webhook_configured": runtime is not None,
+            }
+        ), 200
 
     @app.post("/")
     def receive_telegram_update():
+        if runtime is None:
+            return jsonify(
+                {"ok": False, "error": "RENDER_EXTERNAL_URL is not configured"}
+            ), 503
+
         supplied_token = request.headers.get(WEBHOOK_SECRET_HEADER, "")
         if not hmac.compare_digest(supplied_token, secret_token):
             return jsonify({"ok": False, "error": "forbidden"}), 403
@@ -211,7 +219,7 @@ def create_flask_app(
 def _validate_webhook_url(value: str) -> str:
     parsed = urlsplit(value)
     if parsed.scheme != "https" or not parsed.netloc:
-        raise ValueError("WEBHOOK_URL must be an HTTPS URL.")
+        raise ValueError("RENDER_EXTERNAL_URL must be an HTTPS URL.")
     return value
 
 

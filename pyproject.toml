@@ -8,6 +8,7 @@ dependencies = [
     "aiohttp>=3.9,<4",
     "aiosqlite>=0.20,<1",
     "flask>=3.0,<4",
+    "gunicorn>=22,<24",
     "mutagen>=1.47,<2",
     "pillow>=10,<13",
     "pydub>=0.25.1,<1",
