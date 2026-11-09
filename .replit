@@ -24,12 +24,13 @@ args = "Telegram Music Bot"
 name = "Telegram Music Bot"
 author = "agent"
 
+[workflows.workflow.metadata]
+outputType = "webview"
+
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "PYTHONPATH=telegram_music_bot/src python -m music_bot"
-
-[workflows.workflow.metadata]
-outputType = "console"
+waitForPort = 5000
 
 [agent]
 stack = "PNPM_WORKSPACE"

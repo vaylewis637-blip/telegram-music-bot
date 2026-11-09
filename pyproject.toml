@@ -1,15 +1,17 @@
 [project]
 name = "telegram-music-bot"
 version = "0.1.0"
-description = "An aiogram 3 Telegram bot with CAPTCHA, required channel checks, and music search."
+description = "An aiogram 3 Telegram bot served through Flask webhooks."
 requires-python = ">=3.11"
 dependencies = [
     "aiogram>=3.13,<4",
     "aiohttp>=3.9,<4",
     "aiosqlite>=0.20,<1",
+    "flask>=3.0,<4",
     "mutagen>=1.47,<2",
     "pillow>=10,<13",
     "pydub>=0.25.1,<1",
+    "python-dotenv>=1.0,<2",
 ]
 
 [tool.uv]
